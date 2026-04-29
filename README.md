@@ -1,5 +1,7 @@
 Repositorio exposicion sobre electrocardiografia.
+
 Orden que hablamos en clase:
+
     1: Elecrtoficiologia del corazon.
     
     2: Como funciona 1 electrocardiografo:
