@@ -53,7 +53,7 @@ RUTA = "C:\\Users\\Jacobo\\Documents\\Nacho\\1 Semestre\\Intro Electronica\\Pres
 print(f"presione:\n 'g' para guardar instantanea\n 'r' para guardar istantanea con reporte\n 'h' para incrementar amplitud \n 'l' para reducir amplitud")
 
 DIVISOR_TENSION = 250
-DIVISOR_TENSION2 = 210
+DIVISOR_TENSION2 = 180
 
 # =========================
 # SERIAL
