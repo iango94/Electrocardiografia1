@@ -30,8 +30,10 @@ def get_port():
             return "COM6"
         case 7:
             return "COM7"
+        case 8:
+            return "COM8"
         case _:
-            return "COM3"
+            return "COM5"
 
 PORT = get_port() 
 BAUD = 115200
@@ -44,13 +46,14 @@ HR_WINDOW = 3
 buffer_size = FS * BUFFER_SECONDS
 hr_size = FS * HR_WINDOW
 
-PACIENTE = input("Digite nombre paciente: ")
+PACIENTE = "PresentacionClase"
 FILE_NAME = "ECG_" + PACIENTE + ".pdf"
-RUTA = "C:\\Users\\Jacobo\\Documents\\proyectosActuales\\ECG\\ElectrosTomados\\"
+RUTA = "C:\\Users\\Jacobo\\Documents\\Nacho\\1 Semestre\\Intro Electronica\\PresentacionECG\\Electrocardiografia1\\ECGs\\"
 
 print(f"presione:\n 'g' para guardar instantanea\n 'r' para guardar istantanea con reporte\n 'h' para incrementar amplitud \n 'l' para reducir amplitud")
 
 DIVISOR_TENSION = 250
+DIVISOR_TENSION2 = 210
 
 # =========================
 # SERIAL
@@ -101,14 +104,28 @@ def obtener_tiempo():
 def incrementar_divisor():
     global DIVISOR_TENSION
     DIVISOR_TENSION += 20
+    DIVISOR_TENSION2 += 20
 
 def reducir_divisor():
     global DIVISOR_TENSION
-    DIVISOR_TENSION -= 20
+    if DIVISOR_TENSION > 20:
+        DIVISOR_TENSION -= 20
+    else:
+        print("Error Divisor 1 en rango minimo")
 
-def normalize(signal):
+    if DIVISOR_TENSION2 > 20:
+        DIVISOR_TENSION2 -= 20
+    else:
+        print("Error Divisor 2 en rango minimo")
+
+def normalize(signal, protocolo = 1):
     signal = np.array(signal)
-    signal = (signal - np.mean(signal)) / DIVISOR_TENSION # np.std(signal)
+    
+    if protocolo == 1:
+        signal = (signal - np.mean(signal)) / DIVISOR_TENSION # np.std(signal)
+    else:
+        signal = (signal - np.mean(signal)) / DIVISOR_TENSION2 # np.std(signal)
+    
     return signal
 
 # =========================
@@ -206,7 +223,7 @@ def export_pdf():
     buffer_list = list(ecg_buffer)
     # buffer_list = buffer_list[-3600]  #da error ???
 
-    signal = normalize(buffer_list)
+    signal = normalize(buffer_list, 2)
     cleaned = nk.ecg_clean(signal, sampling_rate=FS, method='neurokit')
 
     # Tiempo real (10 s)
@@ -277,7 +294,7 @@ def report_pdf():
     if len(ecg_buffer) < buffer_size:
         return
 
-    signal = normalize(list(ecg_buffer))
+    signal = normalize(list(ecg_buffer), 2)
     cleaned = nk.ecg_clean(signal, sampling_rate=FS, method='neurokit')
 
     qrs_min, qrs_time_avr, qrs_max = calculate_qrs(signal)
