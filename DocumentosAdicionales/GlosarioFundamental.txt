@@ -1,0 +1,29 @@
+Isquemia
+Hipoxia
+Anoxia
+Necrosis / infarto
+Angina estable
+Angina inestable
+Taquicardia
+Bradicardia
+Arritmia
+Ritmo sinusal
+IAMCEST (STEMI en inglés)
+IAMSEST (NSTEMI en inglés)
+Síndrome coronario agudo
+Arteriosclerosis
+Dislipidemia
+Trombosis
+Perfusión
+Reperfusión
+Hemostasia
+Plaquetas
+Antiagregante plaquetario
+Anticoagulante
+Fibrinolítico
+Ácido acetilsalicílico (ASA)
+Time-to-reperfusion
+Amplificador de instrumentación
+Ruido de modo común
+Hipersensibilidad
+Hemorragia
