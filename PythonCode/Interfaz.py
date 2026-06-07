@@ -1,287 +1,276 @@
 import sys
-from PyQt5.QtWidgets import (QApplication, QWidget, QDialog, QLabel, 
-                             QPushButton, QVBoxLayout, QHBoxLayout, 
-                             QTextEdit, QMessageBox, QComboBox, QLineEdit)
-from PyQt5.QtCore import QTimer
+import serial
+import numpy as np
+from PyQt5 import QtWidgets, QtCore, QtGui
 import pyqtgraph as pg
-import ecg_analisis as utils
 
+# === IMPORTANTE: IMPORTAMOS TU MODULO DE ANALISIS ===
+import Ecg_Analisis1 
+
+ser = None
+t_local = 0
+subtimer_local = 0
 respuestas_cuestionario = {}
 
-def mostrar_portada():
-    portada = PortadaGrupo()
-    return portada.exec_()
+# ========================================================
+# CLASES DE INTERFAZ GRÁFICA
+# ========================================================
 
-def ejecutar_cuestionario():
-    dialogo = CuestionarioGrafico()
-    if dialogo.exec_():
-        return 0, dialogo.respuestas
-    return 1, "Cuestionario cancelado."
+class PortadaECG(QtWidgets.QDialog):
+    def __init__(self):
+        super().__init__()
+        self.setWindowTitle("PORTADA DEL PROYECTO")
+        self.setFixedSize(450, 380)
+        layout = QtWidgets.QVBoxLayout(self)
 
-class PortadaGrupo(QDialog):
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.setWindowTitle("PORTADA DEL PROYECTO - ECG")
-        self.setFixedSize(500, 380)
-        self.setModal(True)
+        lbl_titulo = QtWidgets.QLabel("<h2>SISTEMA DE ELECTROCARDIOGRAFÍA</h2>")
+        lbl_titulo.setStyleSheet("color: #1f618d;")
+        layout.addWidget(lbl_titulo)
 
-        layout = QVBoxLayout(self)
-
-        titulo = QLabel("<h2>UNIVERSIDAD NACIONAL DE COLOMBIA</h2><h3>Sistema Biomédico de ECG - Arduino Nano</h3>")
-        titulo.setStyleSheet("color: #1a5276; text-align: center;")
-        layout.addWidget(titulo)
-
-        info = QLabel(
-            "<b>Asignatura:</b> Introducción a la Electrónica / Biomédica<br><br>"
-            "<b>Docente Titular:</b> Profesor Encargado<br><br>"
-            "<b>Grupo de Trabajo / Diseñadores:</b><br>"
-            "· Jacobo (Diseñador de Hardware / Software)<br>"
-            "· Integrante 2<br><br>"
-            "<b>Frecuencia de Muestreo:</b> 360 Hz (Muestreo síncrono por Timer1)"
-        )
-        info.setStyleSheet("background-color: #f4f6f7; padding: 10px; border-radius: 5px;")
-        layout.addWidget(info)
-
-        layout.addWidget(QLabel("<b>Nombre del Paciente a Evaluar:</b>"))
-        self.txt_nombre = QLineEdit("PresentacionClase")
+        layout.addWidget(QtWidgets.QLabel("<b>Nombre del Paciente:</b>"))
+        self.txt_nombre = QtWidgets.QLineEdit("PresentacionClase")
         layout.addWidget(self.txt_nombre)
 
-        btn_entrar = QPushButton("INGRESAR AL MONITOR")
+        layout.addWidget(QtWidgets.QLabel("<b>Edad (Años):</b>"))
+        self.txt_edad = QtWidgets.QLineEdit("22")
+        layout.addWidget(self.txt_edad)
+
+        layout.addWidget(QtWidgets.QLabel("<b>Sexo Biológico:</b>"))
+        self.cb_sexo = QtWidgets.QComboBox()
+        self.cb_sexo.addItems(["M", "F"])
+        layout.addWidget(self.cb_sexo)
+
+        btn_entrar = QtWidgets.QPushButton("Iniciar Monitor e Interfaz")
         btn_entrar.setStyleSheet("background-color: #27ae60; color: white; font-weight: bold; height: 35px;")
-        btn_entrar.clicked.connect(self.guardar_y_entrar)
+        btn_entrar.clicked.connect(self.procesar_datos_iniciales)
         layout.addWidget(btn_entrar)
 
-    def guardar_y_entrar(self):
-        # Configuramos los datos globales en el backend antes de lanzar el monitor principal
-        utils.paciente = self.txt_nombre.text().strip()
-        utils.file_name = f"ECG_{utils.paciente}.pdf"
+    def procesar_datos_iniciales(self):
+        # Actualizamos las variables del módulo médico de forma directa
+        ecg_analisis.paciente = self.txt_nombre.text().strip()
+        ecg_analisis.file_name = f"ECG_{ecg_analisis.paciente}.pdf"
+        ecg_analisis.diagnostico['edad'] = int(self.txt_edad.text())
+        ecg_analisis.diagnostico['sexo'] = self.cb_sexo.currentText()
         self.accept()
 
 
-class CuestionarioGrafico(QDialog):
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.setWindowTitle("Evaluación de Descarte Médico")
-        self.setFixedSize(600, 450)
-        self.setModal(True)
-
+class CuestionarioECG(QtWidgets.QDialog):
+    def __init__(self):
+        super().__init__()
+        self.setWindowTitle("Cuestionario de Control Médico")
+        self.setFixedSize(550, 420)
         self.respuestas = {}
         self.preguntas = [
-            "1. ¿Presenta actualmente dolor opresivo en el pecho o sensación de ahogo?",
-            "2. ¿Ha sentido palpitaciones aceleradas o arrítmicas en estado de reposo?",
-            "3. ¿Sufre de síncopes (desmayos) repentinos o mareos agudos?",
-            "4. ¿Posee diagnósticos previos de hipertensión arterial o insuficiencia cardíaca?"
+            "1. ¿Siente algún dolor o presión inusual en el pecho en este momento?",
+            "2. ¿Ha percibido palpitaciones rápidas o arrítmicas recientemente?",
+            "3. ¿Tiene antecedentes familiares directos de patologías cardíacas?",
+            "4. ¿Sufre de mareos frecuentes o pérdidas temporales de conocimiento?"
         ]
         self.indice = 0
 
-        layout_principal = QVBoxLayout(self)
+        layout = QtWidgets.QVBoxLayout(self)
 
-        # --- APARTADO SUPERIOR DE GRÁFICO (Solicitado) ---
         self.win_grafica = pg.GraphicsLayoutWidget()
         self.plot_decorativo = self.win_grafica.addPlot()
-        self.plot_decorativo.setYRange(-1, 1.5)
-        self.curve_decorativa = self.plot_decorativo.plot(pen='r', width=2)
-        self.win_grafica.setMaximumHeight(200)
-        layout_principal.addWidget(self.win_grafica)
+        self.plot_decorativo.setYRange(-0.5, 1.5)
+        self.curve_dec = self.plot_decorativo.plot(pen='r')
+        self.win_grafica.setMaximumHeight(180)
+        layout.addWidget(self.win_grafica)
 
-        # Pregunta en texto plano destacado
-        self.lbl_pregunta = QLabel(self.preguntas[self.indice])
+        self.lbl_pregunta = QtWidgets.QLabel(self.preguntas[self.indice])
         self.lbl_pregunta.setStyleSheet("font-size: 13px; font-weight: bold; margin: 15px 0px; color: #2c3e50;")
-        layout_principal.addWidget(self.lbl_pregunta)
+        layout.addWidget(self.lbl_pregunta)
 
-        # --- APARTADO INFERIOR: BOTONES SOLICITADOS (Sí, No, Prefiero no responder) ---
-        layout_botones = QHBoxLayout()
-        self.btn_si = QPushButton("Sí")
-        self.btn_no = QPushButton("No")
-        self.btn_pnr = QPushButton("Prefiero no responder")
+        layout_botones = QtWidgets.QHBoxLayout()
+        self.btn_si = QtWidgets.QPushButton("Sí")
+        self.btn_no = QtWidgets.QPushButton("No")
+        self.btn_pnr = QtWidgets.QPushButton("Prefiero no responder")
 
-        self.btn_si.setStyleSheet("background-color: #e74c3c; color: white; font-weight: bold; height: 35px; border-radius: 4px;")
-        self.btn_no.setStyleSheet("background-color: #3498db; color: white; font-weight: bold; height: 35px; border-radius: 4px;")
-        self.btn_pnr.setStyleSheet("background-color: #7f8c8d; color: white; font-weight: bold; height: 35px; border-radius: 4px;")
+        self.btn_si.setStyleSheet("background-color: #e74c3c; color: white; font-weight: bold; height: 35px;")
+        self.btn_no.setStyleSheet("background-color: #3498db; color: white; font-weight: bold; height: 35px;")
+        self.btn_pnr.setStyleSheet("background-color: #95a5a6; color: white; font-weight: bold; height: 35px;")
 
         layout_botones.addWidget(self.btn_si)
         layout_botones.addWidget(self.btn_no)
         layout_botones.addWidget(self.btn_pnr)
-        layout_principal.addLayout(layout_botones)
+        layout.addLayout(layout_botones)
 
-        # Conexión de eventos por expresiones Lambda
-        self.btn_si.clicked.connect(lambda: self.registrar("Sí"))
-        self.btn_no.clicked.connect(lambda: self.registrar("No"))
-        self.btn_pnr.clicked.connect(lambda: self.registrar("Prefiero no responder"))
+        self.btn_si.clicked.connect(lambda: self.guardar_respuesta("Sí"))
+        self.btn_no.clicked.connect(lambda: self.guardar_respuesta("No"))
+        self.btn_pnr.clicked.connect(lambda: self.guardar_respuesta("Prefiero no responder"))
 
-        self.animar_grafico_pregunta()
+        self.dibujar_pulso_ejemplo()
 
-    def animar_grafico_pregunta(self):
-        """Genera un pulso cardíaco ilustrativo para el apartado gráfico superior"""
-        x = np.linspace(0, 4, 200)
-        # Simulación matemática rápida de un complejo QRS estético
+    def dibujar_pulso_ejemplo(self):
+        x = np.linspace(0, 2, 100)
         y = np.zeros_like(x)
-        y[(x > 0.8) & (x < 0.9)] = (x[(x > 0.8) & (x < 0.9)] - 0.8) * 10  # Onda P
-        y[(x > 1.4) & (x < 1.5)] = -0.3  # Onda Q
-        y[(x > 1.5) & (x < 1.6)] = (x[(x > 1.5) & (x < 1.6)] - 1.5) * 15 # Onda R
-        y[(x > 1.6) & (x < 1.7)] = -0.5  # Onda S
-        self.curve_decorativa.setData(x, y)
-        self.plot_decorativo.getAxis('bottom').setStyle(showValues=False)
-        self.plot_decorativo.getAxis('left').setStyle(showValues=False)
+        y[30:33] = 1.2; y[28:30] = -0.2; y[33:36] = -0.3
+        self.curve_dec.setData(x, y)
+        self.plot_decorativo.hideAxis('bottom')
+        self.plot_decorativo.hideAxis('left')
 
-    def registrar(self, respuesta):
-        pregunta_actual = self.preguntas[self.indice]
-        self.respuestas[pregunta_actual] = respuesta
+    def guardar_respuesta(self, valor):
+        self.respuestas[self.preguntas[self.indice]] = valor
         self.indice += 1
-
         if self.indice < len(self.preguntas):
             self.lbl_pregunta.setText(self.preguntas[self.indice])
         else:
-            QMessageBox.information(self, "Cuestionario Listo", "Respuestas clínicas integradas con éxito.")
+            QtWidgets.QMessageBox.information(self, "Terminado", "Cuestionario guardado exitosamente.")
             self.accept()
 
 
-class VentanaPrincipal(QWidget):
+class VentanaPrincipalECG(QtWidgets.QWidget):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle(f"Monitor Clínico de ECG - Paciente: {utils.paciente}")
-        self.setGeometry(100, 100, 1000, 650)
-        self.t = 0
-        self.subtimer = 0
+        self.setWindowTitle(f"Monitor de ECG en Tiempo Real - Paciente: {ecg_analisis.paciente}")
+        self.setGeometry(100, 100, 950, 600)
         self.crear_ui()
 
     def crear_ui(self):
-        layout_principal = QVBoxLayout(self)
+        layout = QtWidgets.QVBoxLayout(self)
 
-        # Panel Superior de Selección de Puerto Serial COM
-        layout_serial = QHBoxLayout()
-        layout_serial.addWidget(QLabel("<b>Seleccionar Puerto Arduino (Nano):</b>"))
-        self.combo_puertos = QComboBox()
-        self.combo_puertos.addItems([f"COM{i}" for i in range(1, 9)])
-        self.combo_puertos.setCurrentText("COM5")
-        layout_serial.addWidget(self.combo_puertos)
-
-        self.btn_conectar = QPushButton("Conectar Hardware")
-        self.btn_conectar.clicked.connect(self.conectar_arduino)
+        layout_com = QtWidgets.QHBoxLayout()
+        layout_com.addWidget(QtWidgets.QLabel("<b>Seleccionar Puerto Serial de Conexión:</b>"))
+        self.combo_puerto = QtWidgets.QComboBox()
+        self.combo_puerto.addItems([f"COM{i}" for i in range(1, 10)])
+        self.combo_puerto.setCurrentText('COM5')
+        layout_com.addWidget(self.combo_puerto)
+        
+        self.btn_conectar = QtWidgets.QPushButton("Conectar Arduino Nano")
         self.btn_conectar.setStyleSheet("background-color: #2980b9; color: white; font-weight: bold;")
-        layout_serial.addWidget(self.btn_conectar)
-        layout_principal.addLayout(layout_serial)
+        self.btn_conectar.clicked.connect(self.conectar_serial)
+        layout_com.addWidget(self.btn_conectar)
+        layout.addLayout(layout_com)
 
-        # Monitor de Consola Central
-        self.area_texto = QTextEdit()
-        self.area_texto.setReadOnly(True)
-        self.area_texto.setPlaceholderText("Logs operativos del sistema cardíaco...")
-        layout_principal.addWidget(self.area_texto)
+        self.consola = QtWidgets.QTextEdit()
+        self.consola.setReadOnly(True)
+        self.consola.setPlaceholderText("Logs operativos e información clínica...")
+        layout.addWidget(self.consola)
 
-        # Lienzo en tiempo real usando PyqtGraph (Copiado de tu script original)
         self.win_grafica = pg.GraphicsLayoutWidget()
-        self.plot = self.win_grafica.addPlot(title="Señal Filtrada ECG en Tiempo Real (Hz: 360)")
+        self.plot = self.win_grafica.addPlot(title="ECG Real-Time")
         self.plot.setYRange(-2, 2)
         self.plot.enableAutoRange(axis='y', enable=False)
         self.curve = self.plot.plot(pen='g')
-        
+
         self.hr_label = pg.TextItem(color='y')
         self.plot.addItem(self.hr_label)
-        layout_principal.addWidget(self.win_grafica)
+        layout.addWidget(self.win_grafica)
 
-        # Panel de Controles Inferiores (Botones de operaciones y periféricos)
-        layout_controles = QHBoxLayout()
-        self.btn_cuestionario = QPushButton("Lanzar Cuestionario")
-        self.btn_pdf_simple = QPushButton("Exportar PDF ('g')")
-        self.btn_pdf_reporte = QPushButton("Exportar Reporte ('r')")
-        self.btn_salir = QPushButton("Desconectar y Salir")
+        layout_botones = QtWidgets.QHBoxLayout()
+        self.btn_cuestionario = QtWidgets.QPushButton("Responder Cuestionario")
+        self.btn_g = QtWidgets.QPushButton("Guardar Instantánea (G)")
+        self.btn_r = QtWidgets.QPushButton("Guardar Reporte (R)")
+        self.btn_f = QtWidgets.QPushButton("Análisis NeuroKit completo (F)")
 
-        layout_controles.addWidget(self.btn_cuestionario)
-        layout_controles.addWidget(self.btn_pdf_simple)
-        layout_controles.addWidget(self.btn_pdf_reporte)
-        layout_controles.addWidget(self.btn_salir)
-        layout_principal.addLayout(layout_controles)
+        layout_botones.addWidget(self.btn_cuestionario)
+        layout_botones.addWidget(self.btn_g)
+        layout_botones.addWidget(self.btn_r)
+        layout_botones.addWidget(self.btn_f)
+        layout.addLayout(layout_botones)
 
-        # Eventos de los Botones
+        # Triggers visuales vinculados a llamadas de funciones del módulo importado
         self.btn_cuestionario.clicked.connect(self.abrir_cuestionario)
-        self.btn_pdf_simple.clicked.connect(self.guardar_pdf)
-        self.btn_pdf_reporte.clicked.connect(self.guardar_reporte_completo)
-        self.btn_salir.clicked.connect(self.close)
+        self.btn_g.clicked.connect(self.disparar_export)
+        self.btn_r.clicked.connect(self.disparar_reporte)
+        self.btn_f.clicked.connect(self.disparar_full_analisis)
 
-        # Configuración del Reloj de Muestreo (Timer QT)
-        self.timer_muestreo = QTimer()
-        self.timer_muestreo.timeout.connect(self.leer_muestras_serial)
+        self.timer = QtCore.QTimer()
+        self.timer.timeout.connect(self.update_loop)
 
-    def conectar_arduino(self):
-        puerto = self.combo_puertos.currentText()
-        exito, msg = utils.inicializar_serial(puerto)
-        if exito:
-            self.area_texto.append(f"[HARDWARE] {msg}")
-            self.timer_muestreo.start(10) # Comienza la lectura cada 10ms
+    def conectar_serial(self):
+        global ser
+        puerto_seleccionado = self.combo_puerto.currentText()
+        try:
+            ser = serial.Serial(puerto_seleccionado, ecg_analisis.BAUD)
+            self.consola.append(f"[HARDWARE] Conectado exitosamente al puerto {puerto_seleccionado}")
+            self.timer.start(10)
             self.btn_conectar.setEnabled(False)
-        else:
-            QMessageBox.critical(self, "Fallo Serial", msg)
+        except Exception as e:
+            QtWidgets.QMessageBox.critical(self, "Error Serial", f"No se pudo abrir el puerto: {e}")
 
     def abrir_cuestionario(self):
-        status, res = ejecutar_cuestionario()
-        if status == 0:
+        dialogo = CuestionarioECG()
+        if dialogo.exec_():
             global respuestas_cuestionario
-            respuestas_cuestionario = res
-            
-            reporte = [f"=== HISTORIAL CLÍNICO PREVIO: {utils.paciente} ==="]
-            for preg, resp in respuestas_cuestionario.items():
-                reporte.append(f"• {preg}\n  Respuesta: {resp}")
-            reporte.append("=========================================")
-            self.area_texto.append("\n".join(reporte))
+            respuestas_cuestionario = dialogo.respuestas
+            texto_reporte = [f"\n=== CUESTIONARIO PREVIO DEL PACIENTE ==="]
+            for pr, re in respuestas_cuestionario.items():
+                texto_reporte.append(f"· {pr} -> Resp: {re}")
+            texto_reporte.append("=========================================\n")
+            self.consola.append("\n".join(texto_reporte))
 
-    def leer_muestras_serial(self):
-        """Manejador del ciclo de adquisición síncrona de datos analógicos"""
-        if utils.ser is None or not utils.ser.is_open:
-            return
+    def disparar_export(self):
+        if ecg_analisis.export_pdf():
+            self.consola.append(f"[EXPORT] PDF Guardado de forma exitosa como: {ecg_analisis.file_name}")
+        else:
+            self.consola.append("[ADVERTENCIA] Buffer insuficiente para exportar.")
 
-        tiempo_subtimer = 3
+    def disparar_reporte(self):
+        res = ecg_analisis.report_pdf()
+        if res:
+            self.consola.append(f"[REPORTE] Guardado Reporte{ecg_analisis.file_name}. Métricas calculadas: {res}")
+        else:
+            self.consola.append("[ADVERTENCIA] Buffer insuficiente para generar reporte.")
+
+    def disparar_full_analisis(self):
+        ok, msg = ecg_analisis.full_analisis()
+        if ok:
+            self.consola.append(f"[NEUROKIT] Análisis global ejecutado. Reporte médico actualizado.")
+        else:
+            self.consola.append(f"[ERROR] {msg}")
+
+    def update_loop(self):
+        global t_local, subtimer_local, ser
+        if ser is None or not ser.is_open: return
+
+        tiempo_subtimer = 3 
         control_subtimer = 85 * tiempo_subtimer
 
-        while utils.ser.in_waiting:
+        while ser.in_waiting:
             try:
-                linea = utils.ser.readline().decode().strip()
-                if linea:
-                    value = int(linea)
-                    utils.ecg_buffer.append(value)
-                    utils.time_buffer.append(self.t)
-                    self.t += 1 / utils.FS
+                value = int(ser.readline().decode().strip())
+                ecg_analisis.ecg_buffer.append(value)
+                ecg_analisis.time_buffer.append(t_local)
+                t_local += 1 / ecg_analisis.FS
             except:
                 pass
 
-        self.subtimer += 1
+        subtimer_local += 1
 
-        if len(utils.ecg_buffer) > utils.FS:
-            signal = utils.normalize(list(utils.ecg_buffer))
-            cleaned = utils.filtrar_ECG(signal)
+        if len(ecg_analisis.ecg_buffer) > ecg_analisis.FS:
+            signal = ecg_analisis.normalize(list(ecg_analisis.ecg_buffer))
+            cleaned = ecg_analisis.filtrar_ECG(signal) 
             self.curve.setData(cleaned)
 
-            # Cálculo dinámico de Frecuencia Cardíaca cada ciclo del subtimer
-            if len(signal) > utils.hr_size and self.subtimer >= control_subtimer:
-                hr = float(utils.compute_hr(signal))
-                if hr > 0:
-                    self.hr_label.setText(f"HR: {hr:.1f} bpm")
-                    self.hr_label.setPos(len(signal)*0.7, np.max(cleaned))
-                self.subtimer = 0
-
-    def guardar_pdf(self):
-        exito, archivo = utils.export_pdf()
-        if exito: self.area_texto.append(f"[SISTEMA] Archivo PDF guardado en: {archivo}")
-        else: QMessageBox.warning(self, "Alerta", archivo)
-
-    def guardar_reporte_completo(self):
-        exito, archivo = utils.report_pdf()
-        if exito: self.area_texto.append(f"[SISTEMA] Reporte Médico PDF guardado en: {archivo}")
-        else: QMessageBox.warning(self, "Alerta", archivo)
+            if len(signal) > ecg_analisis.hr_size and subtimer_local >= control_subtimer:
+                hr = float(ecg_analisis.compute_hr(signal))
+                self.hr_label.setText(f"HR: {hr:.1f} bpm")
+                self.hr_label.setPos(len(signal)*0.7, max(cleaned))
+                subtimer_local = 0
 
     def keyPressEvent(self, event):
-        """Mantiene los accesos rápidos por teclado que ya usabas"""
-        if event.text() == 'g': self.guardar_pdf()
-        elif event.text() == 'r': self.guardar_reporte_completo()
-        elif event.text() == 'h': utils.reducir_divisor()
-        elif event.text() == 'l': utils.incrementar_divisor()
+        if event.text() == 'g': self.disparar_export()
+        elif event.text() == 'r': self.disparar_reporte()
+        elif event.text() == 'f': self.disparar_full_analisis()
+        elif event.text() == 'h': 
+            div = ecg_analisis.reducir_divisor()
+            self.consola.append(f"[DIVISOR] Ajustado vía teclado a: {div}")
+        elif event.text() == 'l': 
+            div = ecg_analisis.incrementar_divisor()
+            self.consola.append(f"[DIVISOR] Ajustado vía teclado a: {div}")
 
+
+# ========================================================
+# FLUJO PRINCIPAL DE CONTROL
+# ========================================================
 if __name__ == '__main__':
-    app = QApplication(sys.argv)
+    app = QtWidgets.QApplication(sys.argv)
     
-    # Arranca primero la portada institucional del grupo
-    if mostrar_portada() == QDialog.Accepted:
-        ventana = VentanaPrincipal()
-        ventana.show()
+    portada = PortadaECG()
+    if portada.exec_() == QtWidgets.QDialog.Accepted:
+        main_window = VentanaPrincipalECG()
+        main_window.show()
         sys.exit(app.exec_())
     else:
         sys.exit(0)
