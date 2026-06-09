@@ -69,7 +69,7 @@ class VentanaDatosPaciente(QtWidgets.QDialog):
         self.spn_duracion.setRange(0, 720)
         self.spn_duracion.setSuffix(" min")
         form_sintomas.addRow(
-            "Duración",
+            "¿Hace cuanto empezaron los sintomas?",
             self.spn_duracion
         )
 
