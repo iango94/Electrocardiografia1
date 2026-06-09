@@ -1,0 +1,120 @@
+# CUESTIONARIO FEMENINO
+def cuestionario_mujer():
+    # Factores de riesgo
+    mayor_45 = input("¿Tiene 45 años o más? (si/no/prefiero_no_decirlo): ").lower()
+    diabetes = input("¿Ha sido diagnosticada con diabetes? (si/no/prefiero_no_decirlo): ").lower()
+
+    # RAMA 1: DOLOR TORÁCICO
+    dolor_toracico = input("¿Presenta dolor o presión en el pecho? (si/no/prefiero_no_decirlo): ").lower()
+
+    if dolor_toracico == "si":
+        duracion = input("¿El dolor dura más de 20 minutos? (si/no/prefiero_no_decirlo): ").lower()
+        if duracion == "si":
+            return "ALTA"
+
+        irradiacion = input("¿El dolor se extiende a brazos o mandíbula? (si/no/prefiero_no_decirlo): ").lower()
+        if irradiacion == "si":
+            return "ALTA"
+
+        dificultad_respirar = input("¿Tiene dificultad para respirar? (si/no/prefiero_no_decirlo): ").lower()
+        if dificultad_respirar == "si":
+            return "ALTA"
+
+        return "MEDIA"
+
+
+    # RAMA 2: SÍNTOMAS ATÍPICOS
+    fatiga = input("¿Presenta fatiga intensa o repentina? (si/no/prefiero_no_decirlo): ").lower()
+
+    if fatiga == "si":
+        if diabetes == "si" or mayor_45 == "si":
+            return "ALTA"
+
+        return "MEDIA"
+
+    dolor_epigastrico = input(
+        "¿Presenta dolor abdominal similar a gastritis? (si/no/prefiero_no_decirlo): ").lower()
+
+    if dolor_epigastrico == "si":
+        if diabetes == "si" or mayor_45 == "si":
+            return "ALTA"
+
+        return "MEDIA"
+
+    palpitaciones = input(
+        "¿Presenta palpitaciones por más de 10 minutos? (si/no/prefiero_no_decirlo): ").lower()
+
+    if palpitaciones == "si":
+        if diabetes == "si" or mayor_45 == "si":
+            return "ALTA"
+
+        return "MEDIA"
+
+    muerte_inminente = input(
+        "¿Siente una sensación de muerte inminente? (si/no/prefiero_no_decirlo): ").lower()
+
+    if muerte_inminente == "si":
+        if diabetes == "si" or mayor_45 == "si":
+            return "ALTA"
+
+        return "MEDIA"
+
+    return "BAJA"
+
+
+# CUESTIONARIO MASCULINO
+def cuestionario_hombre():
+    # AQUÍ VA EL CÓDIGO
+
+    return "SIN_EVALUAR"
+
+
+# =====================================================
+# PROGRAMA PRINCIPAL
+# =====================================================
+
+print("======================================")
+print(" CUESTIONARIO DE SÍNTOMAS CARDÍACOS")
+print("======================================\n")
+
+genero = input(
+    "¿Es usted hombre? (si/no/prefiero_no_decirlo): ").lower()
+
+# Si es hombre:
+if genero == "si":
+    print("\nIniciando cuestionario para hombres...\n")
+    resultado_hombre = cuestionario_hombre()
+
+    print("\n======================")
+    print("RESULTADO:", resultado_hombre)
+    print("======================")
+
+# Si es mujer:
+elif genero == "no":
+    print("\nIniciando cuestionario para mujeres...\n")
+    resultado_mujer = cuestionario_mujer()
+
+    print("\n======================")
+    print("RESULTADO:", resultado_mujer)
+    print("======================")
+
+# Si prefiere no responder:
+elif genero == "prefiero_no_decirlo":
+    print("\nSe realizarán ambos cuestionarios para una evaluación más completa.\n")
+    print("=== CUESTIONARIO FEMENINO ===\n")
+    resultado_mujer = cuestionario_mujer()
+
+    print("\n=== CUESTIONARIO MASCULINO ===\n")
+    resultado_hombre = cuestionario_hombre()
+
+    print("\n======================")
+    print("RESULTADO FEMENINO :", resultado_mujer)
+    print("RESULTADO MASCULINO:", resultado_hombre)
+    print("======================")
+
+# Error
+else:
+    print("Respuesta no válida. Responda únicamente:")
+    print("si")
+    print("no")
+    print("prefiero_no_decirlo")
