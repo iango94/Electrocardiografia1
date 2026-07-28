@@ -1,7 +1,7 @@
 import sys
 import numpy as np
 import pyqtgraph as pg
-from PyQt5 import QtWidgets, QtCore
+from PyQt6 import QtWidgets, QtCore
 from lector_ecg import LectorECG
 
 class MonitorECGCompleto(QtWidgets.QMainWindow):
@@ -120,8 +120,8 @@ class MonitorECGCompleto(QtWidgets.QMainWindow):
         self.curvas[id_canal] = p.plot(pen=pg.mkPen(color_hex, width=1.5))
         self.plots[id_canal] = p
         
-        # Línea horizontal discontinua en 0V
-        self.lineas_rojas[id_canal] = pg.InfiniteLine(pos=0, angle=0, pen=pg.mkPen('r', width=1, style=QtCore.Qt.DashLine), movable=False)
+        # Línea horizontal discontinua en 0V (Actualizado a PyQt6 enum: QtCore.Qt.PenStyle.DashLine)
+        self.lineas_rojas[id_canal] = pg.InfiniteLine(pos=0, angle=0, pen=pg.mkPen('r', width=1, style=QtCore.Qt.PenStyle.DashLine), movable=False)
 
     def alternar_linea_isoelectrica(self):
         """Muestra u oculta la línea de 0V"""
@@ -182,4 +182,4 @@ if __name__ == '__main__':
     
     monitor = MonitorECGCompleto()
     monitor.show()
-    sys.exit(app.exec_())
+    sys.exit(app.exec())  # En PyQt6 exec_() cambia a exec()
