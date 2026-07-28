@@ -22,8 +22,8 @@ class LectorECG:
         # Definir canales diferenciales
         # P0_P1 equivale a MUX 0b100 (AIN0 vs AIN1)
         # P2_P3 equivale a MUX 0b101 (AIN2 vs AIN3)
-        self.chan_di = AnalogIn(self.ads_1, ADS.Pin.A0, ADS.Pin.A1)
-        self.chan_dii = AnalogIn(self.ads_1, ADS.Pin.A2, ADS.Pin.A3)
+        self.chan_di = AnalogIn(self.ads_1, ADS.A0, ADS.A1)
+        self.chan_dii = AnalogIn(self.ads_1, ADS.A2, ADS.A3)
         
         # self.chan_v1 = AnalogIn(self.ads_2, ADS.P0, ADS.P1)
         # self.chan_v5 = AnalogIn(self.ads_2, ADS.P2, ADS.P3)
