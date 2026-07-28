@@ -2,7 +2,6 @@ import board
 import busio
 import adafruit_ads1x15.ads1115 as ADS
 from adafruit_ads1x15.analog_in import AnalogIn
-from adafruit_ads1x15.ads1115 import Pin
 
 class LectorECG:
     def __init__(self):
@@ -23,8 +22,8 @@ class LectorECG:
         # Definir canales diferenciales
         # P0_P1 equivale a MUX 0b100 (AIN0 vs AIN1)
         # P2_P3 equivale a MUX 0b101 (AIN2 vs AIN3)
-        self.chan_di = AnalogIn(self.ads_1, Pin.A0, Pin.A1)
-        self.chan_dii = AnalogIn(self.ads_1, Pin.A2, Pin.A3)
+        self.chan_di = AnalogIn(self.ads_1, ADS.Pin.A0, ADS.Pin.A1)
+        self.chan_dii = AnalogIn(self.ads_1, ADS.Pin.A2, ADS.Pin.A3)
         
         # self.chan_v1 = AnalogIn(self.ads_2, ADS.P0, ADS.P1)
         # self.chan_v5 = AnalogIn(self.ads_2, ADS.P2, ADS.P3)
