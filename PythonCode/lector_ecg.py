@@ -1,6 +1,7 @@
 import board
 import busio
 import adafruit_ads1x15.ads1115 as ADS
+from adafruit_ads1x15.ads1x15 import Pin
 from adafruit_ads1x15.analog_in import AnalogIn
 
 class LectorECG:
@@ -22,26 +23,25 @@ class LectorECG:
         # Definir canales diferenciales
         # P0_P1 equivale a MUX 0b100 (AIN0 vs AIN1)
         # P2_P3 equivale a MUX 0b101 (AIN2 vs AIN3)
-        self.chan_di = AnalogIn(self.ads_1, ADS.A0, ADS.A1)
-        self.chan_dii = AnalogIn(self.ads_1, ADS.A2, ADS.A3)
+        self.chan_di = AnalogIn(self.ads_1, Pin.A0, Pin.A1)
+        self.chan_dii = AnalogIn(self.ads_1, Pin.A2, Pin.A3)
         
-        # self.chan_v1 = AnalogIn(self.ads_2, ADS.P0, ADS.P1)
-        # self.chan_v5 = AnalogIn(self.ads_2, ADS.P2, ADS.P3)
+        self.chan_v1 = self.chan_di #AnalogIn(self.ads_2, ADS.P0, ADS.P1)
+        self.chan_v5 = self.chan_dii #AnalogIn(self.ads_2, ADS.P2, ADS.P3)
         
         # Factor de conversión (Bits a Voltios)
         self.VOLTS_PER_BIT = 4.096 / 32767
 
     def leer_canales(self):
         """Lee la tensión en voltios de los canales configurados."""
-        # Opción A: Usar directamente .voltage (calcula los voltios en base a la ganancia automáticamente)
+       
         v_di = self.chan_di.voltage
         v_dii = self.chan_dii.voltage
-        
-        # Opción B: Si prefieres aplicar tu constante manual con .value (bits crudos):
+
         # v_di = self.chan_di.value * self.VOLTS_PER_BIT
         # v_dii = self.chan_dii.value * self.VOLTS_PER_BIT
         
         # v_v1 = self.chan_v1.voltage
         # v_v5 = self.chan_v5.voltage
         
-        return v_di, v_dii #, v_v1, v_v5
+        return v_di, v_dii, v_v1, v_v5
