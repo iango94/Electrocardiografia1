@@ -47,27 +47,28 @@ class HiloLecturaI2C(QtCore.QThread):
             bus = smbus2.SMBus(1)
             ADDR1 = 0x48
 
-            # Registros pre-calculados (860 SPS, Single-shot, Gain +/-4.096V)
-            # Pre-separamos los bytes de control para no gastar CPU en operaciones binarias en cada iteración
-            CONF_DI_BYTES  = [0x83, 0xE3]  # A0-A1
-            CONF_DII_BYTES = [0xB3, 0xE3]  # A2-A3
+            # Configuración ADS1115 (860 SPS, Gain +/-4.096V, Single-Shot):
+            # Bit 15 = 1 (Iniciar conversión)
+            # MUX A0-A1 (DI)  -> 0x83E3
+            # MUX A2-A3 (DII) -> 0xB3E3
+            CONF_DI_BYTES  = [0x83, 0xE3]
+            CONF_DII_BYTES = [0xB3, 0xE3]
 
             REG_CONV = 0x00
             REG_CFG  = 0x01
 
-            def cambiar_mux_y_leer_previo(bytes_config_siguiente):
-                # 1. Disparar conversión del SIGUIENTE canal
-                bus.write_i2c_block_data(ADDR1, REG_CFG, bytes_config_siguiente)
+            def leer_canal(bytes_config):
+                # 1. Escribir en el registro de configuración para cambiar MUX e INICIAR conversión
+                bus.write_i2c_block_data(ADDR1, REG_CFG, bytes_config)
                 
-                # 2. Espera activa corta de precisión con perf_counter (1.18 ms)
-                # Esto evita que el scheduler de Linux ponga a dormir el hilo por 10ms+
-                t_target = time.perf_counter() + 0.00118
-                while time.perf_counter() < t_target:
-                    pass
-
-                # 3. Leer el valor del registro de conversión
+                # 2. Esperar a que el bit OS (Bit 15) vuelva a 1 (Conversión completada)
+                # A 860 SPS, tarda exactamente ~1.16 milisegundos por canal
+                time.sleep(0.0012)
+                
+                # 3. Leer el registro de conversión (0x00)
                 data = bus.read_i2c_block_data(ADDR1, REG_CONV, 2)
                 raw = (data[0] << 8) | data[1]
+                
                 return raw - 65536 if raw > 32767 else raw
 
             self.ejecutando = True
@@ -78,21 +79,20 @@ class HiloLecturaI2C(QtCore.QThread):
 
         volts_per_bits = 4.096 / 32767.0
 
-        # Benchmark
         contador_muestras = 0
         tiempo_inicio = time.time()
 
         while self.ejecutando:
             try:
-                # Lecturas alternadas optimizadas
-                raw_DI  = cambiar_mux_y_leer_previo(CONF_DI_BYTES)
-                raw_DII = cambiar_mux_y_leer_previo(CONF_DII_BYTES)
+                # Lectura individual forzada paso a paso
+                raw_DI  = leer_canal(CONF_DI_BYTES)
+                raw_DII = leer_canal(CONF_DII_BYTES)
 
-                # Conversión a Voltios
+                # Convertir a voltios
                 v_DI  = raw_DI * volts_per_bits
                 v_DII = raw_DII * volts_per_bits
 
-                # Einthoven / Goldberger
+                # Cálculo de las 6 derivaciones
                 v_DIII = v_DII - v_DI
                 v_aVR  = -(v_DI + v_DII) / 2.0
                 v_aVL  = v_DI - (v_DII / 2.0)
@@ -100,9 +100,9 @@ class HiloLecturaI2C(QtCore.QThread):
 
                 self.nuevos_datos.emit([v_DI, v_DII, v_DIII, v_aVR, v_aVL, v_aVF])
 
-                # Medidor de rendimiento
+                # Benchmark SPS
                 contador_muestras += 1
-                if contador_muestras >= 100:
+                if contador_muestras >= 50:
                     t_actual = time.time()
                     dt = t_actual - tiempo_inicio
                     if dt > 0:
@@ -117,7 +117,6 @@ class HiloLecturaI2C(QtCore.QThread):
     def detener(self):
         self.ejecutando = False
         self.wait()
-
 
 # ========================================================
 # 3. INTERFAZ Y MONITOR ECG CON INDICADOR DE SPS
