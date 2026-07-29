@@ -11,6 +11,7 @@ import pyqtgraph as pg
 import board
 import busio
 import adafruit_ads1x15.ads1115 as ADS
+from adafruit_ads1x15.ads1x15 import Pin
 from adafruit_ads1x15.analog_in import AnalogIn
 
 # ========================================================
@@ -53,15 +54,15 @@ class HiloLecturaI2C(QtCore.QThread):
             ads1 = ADS.ADS1115(i2c, address=0x48)
             ads1.gain = 1  # +/- 4.096V
             ads1.data_rate = 860  # <<-- CRÍTICO: Configurar tasa de muestreo a 860 SPS
-            chan_DI = AnalogIn(ads1, ADS.P0)
-            chan_DII = AnalogIn(ads1, ADS.P1)
+            chan_DI = AnalogIn(ads1, Pin.A0, Pin.A1)
+            chan_DII = AnalogIn(ads1, Pin.A2, Pin.A3)
 
             # ADS1115 #2 (0x49)
-            ads2 = ADS.ADS1115(i2c, address=0x49)
-            ads2.gain = 1
-            ads2.data_rate = 860  # <<-- CRÍTICO: Configurar tasa de muestreo a 860 SPS
-            chan_V3 = AnalogIn(ads2, ADS.P0)
-            chan_V5 = AnalogIn(ads2, ADS.P1)
+            #ads2 = ADS.ADS1115(i2c, address=0x49)
+            #ads2.gain = 1
+            #ads2.data_rate = 860  # <<-- CRÍTICO: Configurar tasa de muestreo a 860 SPS
+            chan_V3 = chan_DI# AnalogIn(ads2, ADS.P0)
+            chan_V5 = chan_DI# AnalogIn(ads2, ADS.P1)
 
             self.ejecutando = True
 
