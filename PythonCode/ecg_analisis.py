@@ -58,10 +58,10 @@ class HiloLecturaI2C(QtCore.QThread):
             chan_DII = AnalogIn(ads1, Pin.A2, Pin.A3)
 
             # ADS1115 #2 (Dirección 0x49 - ADDR a VDD) -> Precordiales (V3, V5)
-            ads2 = ADS.ADS1115(i2c, address=0x49)
-            ads2.gain = 1
-            chan_V3 = AnalogIn(ads2, Pin.A0, Pin.A1)
-            chan_V5 = AnalogIn(ads2, Pin.A2, Pin.A3)
+            #ads2 = ADS.ADS1115(i2c, address=0x49)
+            #ads2.gain = 1
+            chan_V3 = chan_DI #AnalogIn(ads2, Pin.A0, Pin.A1)
+            chan_V5 = chan_DII #AnalogIn(ads2, Pin.A2, Pin.A3)
 
             self.ejecutando = True
 
