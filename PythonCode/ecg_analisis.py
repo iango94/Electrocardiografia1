@@ -1,6 +1,7 @@
 import sys
 import time
 import numpy as np
+import smbus2
 from dataclasses import dataclass, field
 from typing import Dict, Any
 
@@ -32,12 +33,17 @@ class DatosPaciente:
             self.file_name = f"ECG_{nombre_limpio}.pdf"
 
 
+
 # ========================================================
-# 2. HILO DE LECTURA DE ALTA VELOCIDAD
+# 2. HILO DE LECTURA DIFERENCIAL ULTRA RÁPIDO (A0-A1 y A2-A3)
 # ========================================================
 
 class HiloLecturaI2C(QtCore.QThread):
-    """Lectura optimizada de 2x ADS1115 a ~100-200 Hz verdaderos"""
+    """
+    Lectura diferencial directa por SMBus nativo:
+    - ADS1 (0x48): A0-A1 (DI)  y  A2-A3 (DII)
+    - ADS2 (0x49): A0-A1 (V3)  y  A2-A3 (V5)
+    """
     nuevos_datos = QtCore.Signal(list)
     error_i2c = QtCore.Signal(str)
 
@@ -47,42 +53,67 @@ class HiloLecturaI2C(QtCore.QThread):
 
     def run(self):
         try:
-            # Bus I2C a alta velocidad (400 kHz en el SoC de la Raspberry Pi)
-            i2c = busio.I2C(board.SCL, board.SDA)
+            # Conexión directa al bus I2C-1 de la Raspberry Pi
+            bus = smbus2.SMBus(1)
+            ADDR1 = 0x48
+            #ADDR2 = 0x49
 
-            # ADS1115 #1 (0x48)
-            ads1 = ADS.ADS1115(i2c, address=0x48)
-            ads1.gain = 1  # +/- 4.096V
-            ads1.data_rate = 860  # <<-- CRÍTICO: Configurar tasa de muestreo a 860 SPS
-            chan_DI = AnalogIn(ads1, Pin.A0, Pin.A1)
-            chan_DII = AnalogIn(ads1, Pin.A2, Pin.A3)
+            # Mascaras de Configuración del Registro Config (0x01) para ADS1115:
+            # Bit 15: Start Single Conversion = 1
+            # Bits 14-12: MUX Differential
+            #   000 = A0-A1 (Diferencial)
+            #   011 = A2-A3 (Diferencial)
+            # Bits 11-9: PGA (Gain 1 = +/- 4.096V) -> 001
+            # Bit 8: Mode = 1 (Single-Shot para forzar cambio inmediato de MUX)
+            # Bits 7-5: Data Rate = 860 SPS -> 111
+            # Bits 4-0: Comparator config default -> 00011 (0x03)
 
-            # ADS1115 #2 (0x49)
-            #ads2 = ADS.ADS1115(i2c, address=0x49)
-            #ads2.gain = 1
-            #ads2.data_rate = 860  # <<-- CRÍTICO: Configurar tasa de muestreo a 860 SPS
-            chan_V3 = chan_DI# AnalogIn(ads2, ADS.P0)
-            chan_V5 = chan_DI# AnalogIn(ads2, ADS.P1)
+            # CONFIG_A0_A1 = 0x8000 | 0x0000 | 0x0200 | 0x0100 | 0x00E0 | 0x0003 = 0x83E3
+            # CONFIG_A2_A3 = 0x8000 | 0x3000 | 0x0200 | 0x0100 | 0x00E0 | 0x0003 = 0xB3E3
+            CONF_DIFF_A0_A1 = 0x83E3
+            CONF_DIFF_A2_A3 = 0xB3E3
+
+            def leer_diferencial_raw(addr, config_val):
+                # 1. Escribir registro de configuración (0x01)
+                bus.write_i2c_block_data(addr, 0x01, [(config_val >> 8) & 0xFF, config_val & 0xFF])
+                
+                # Pequeña pausa para permitir la conversión a 860 SPS (~1.2 ms por muestra)
+                time.sleep(0.0014)
+
+                # 2. Leer resultado directamente del registro de conversión (0x00)
+                data = bus.read_i2c_block_data(addr, 0x00, 2)
+                raw = (data[0] << 8) | data[1]
+                
+                # Conversión de complemento a dos para lecturas con signo (diferenciales)
+                if raw > 32767:
+                    raw -= 65536
+                return raw
 
             self.ejecutando = True
 
         except Exception as e:
-            self.error_i2c.emit(f"Error inicializando ADS1115s: {e}")
+            self.error_i2c.emit(f"Error inicializando I2C directo: {e}. Instala smbus2 (`pip install smbus2`)")
             return
 
-        # Factor de conversión directo para evitar sobrecarga en bucle
-        # ADS1115 (16-bit): LSB = 4.096V / 32767
         volts_per_bits = 4.096 / 32767.0
 
         while self.ejecutando:
             try:
-                # Lectura ultra rápida accediendo al valor RAW entero del convertidor
-                v_DI = chan_DI.value * volts_per_bits
-                v_DII = chan_DII.value * volts_per_bits
-                v_V3 = chan_V3.value * volts_per_bits
-                v_V5 = chan_V5.value * volts_per_bits
+                # --- ADS1115 #1 (0x48) ---
+                raw_DI  = leer_diferencial_raw(ADDR1, CONF_DIFF_A0_A1) # A0-A1
+                raw_DII = leer_diferencial_raw(ADDR1, CONF_DIFF_A2_A3) # A2-A3
 
-                # Reconstrucción matemática
+                # --- ADS1115 #2 (0x49) ---
+                raw_V3  = raw_DI #leer_diferencial_raw(ADDR2, CONF_DIFF_A0_A1) # A0-A1
+                raw_V5  = raw_DII #leer_diferencial_raw(ADDR2, CONF_DIFF_A2_A3) # A2-A3
+
+                # Convertir a Voltios
+                v_DI  = raw_DI * volts_per_bits
+                v_DII = raw_DII * volts_per_bits
+                v_V3  = raw_V3 * volts_per_bits
+                v_V5  = raw_V5 * volts_per_bits
+
+                # Reconstrucción matemática de las demás derivaciones
                 v_DIII = v_DII - v_DI
                 v_aVR  = -(v_DI + v_DII) / 2.0
                 v_aVL  = v_DI - (v_DII / 2.0)
@@ -96,17 +127,13 @@ class HiloLecturaI2C(QtCore.QThread):
 
                 self.nuevos_datos.emit(muestra_8ch)
 
-                # Pausa mínima de ~2ms para liberar la CPU
-                time.sleep(0.002)
-
             except Exception as e:
-                self.error_i2c.emit(f"Fallo I2C: {e}")
-                time.sleep(0.05)
+                self.error_i2c.emit(f"Fallo de lectura en bus I2C: {e}")
+                time.sleep(0.01)
 
     def detener(self):
         self.ejecutando = False
         self.wait()
-
 
 # ========================================================
 # 3. INTERFAZ CUESTIONARIO
