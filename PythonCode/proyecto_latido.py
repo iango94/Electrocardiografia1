@@ -33,17 +33,107 @@ class DatosPaciente:
             self.file_name = f"ECG_{nombre_limpio}.pdf"
 
 
+# ========================================================
+# 2. FUNCIÓN DE ANÁLISIS DE RIESGO CLÍNICO (NUEVO)
+# ========================================================
+
+def calcular_riesgo_iam_cuestionario(cuestionario: dict) -> dict:
+    """
+    Calcula la probabilidad clínica de Infarto Agudo de Miocardio (IAM)
+    basado exclusivamente en el cuestionario de síntomas y antecedentes.
+    """
+    puntos = 0
+    factores_clave = []
+
+    # 1. Dolor torácico e intensidad
+    dolor = cuestionario.get("dolor_torax", "No") == "Sí"
+    intensidad = cuestionario.get("dolor_intensidad", 0)
+    tipo_dolor = cuestionario.get("dolor_tipo", "Ninguno")
+
+    if dolor:
+        puntos += 2
+        if intensidad >= 7:
+            puntos += 2
+            factores_clave.append("Dolor severo (≥7/10)")
+        if tipo_dolor in ["Opresivo", "Peso en el pecho"]:
+            puntos += 2
+            factores_clave.append("Dolor típico opresivo")
+
+    # 2. Irradiación
+    irradiacion = [
+        cuestionario.get("dolor_mandibula") == "Sí",
+        cuestionario.get("dolor_cuello") == "Sí",
+        cuestionario.get("dolor_brazo_izquierdo") == "Sí",
+        cuestionario.get("dolor_brazo_derecho") == "Sí"
+    ]
+    if any(irradiacion):
+        puntos += 2
+        factores_clave.append("Irradiación característica del dolor")
+
+    # 3. Síntomas vegetativos / acompañantes
+    vegetativos = [
+        cuestionario.get("sudoracion_fria") == "Sí",
+        cuestionario.get("dificultad_respirar") == "Sí",
+        cuestionario.get("sincope") == "Sí"
+    ]
+    if any(vegetativos):
+        puntos += 2
+        factores_clave.append("Síntomas vegetativos (disnea/diaforesis/síncope)")
+
+    # 4. Antecedentes cardiovasculares directos
+    antecedentes_graves = [
+        cuestionario.get("infarto_previo") == "Sí",
+        cuestionario.get("stent_coronario") == "Sí",
+        cuestionario.get("cirugia_cardiaca") == "Sí",
+        cuestionario.get("angina_diagnosticada") == "Sí"
+    ]
+    if any(antecedentes_graves):
+        puntos += 3
+        factores_clave.append("Antecedente de enfermedad coronaria")
+
+    # 5. Factores de riesgo cardiovascular
+    riesgos_cont = sum([
+        cuestionario.get("hipertension") == "Sí",
+        cuestionario.get("diabetes") == "Sí",
+        cuestionario.get("dislipidemia") == "Sí",
+        cuestionario.get("tabaquismo") == "Sí",
+        cuestionario.get("obesidad") == "Sí",
+        cuestionario.get("antecedentes_familiares") == "Sí"
+    ])
+    
+    if riesgos_cont >= 3:
+        puntos += 2
+        factores_clave.append(f"Múltiples factores de riesgo ({riesgos_cont})")
+    elif riesgos_cont >= 1:
+        puntos += 1
+
+    # Clasificación del nivel de riesgo
+    if puntos >= 9:
+        nivel = "EXTREMA"
+        color = "#ff0055"  # Rojo intenso
+    elif puntos >= 6:
+        nivel = "ALTA"
+        color = "#e74c3c"  # Rojo
+    elif puntos >= 3:
+        nivel = "MEDIA"
+        color = "#f39c12"  # Naranja
+    else:
+        nivel = "BAJA"
+        color = "#2ecc71"  # Verde
+
+    return {
+        "nivel": nivel,
+        "puntos": puntos,
+        "color": color,
+        "factores": factores_clave
+    }
+
 
 # ========================================================
-# 2. HILO DE LECTURA DIFERENCIAL ULTRA RÁPIDO (A0-A1 y A2-A3)
+# 3. HILO DE LECTURA DIFERENCIAL ULTRA RÁPIDO
 # ========================================================
 
 class HiloLecturaI2C(QtCore.QThread):
-    """
-    Lectura diferencial directa por SMBus nativo:
-    - ADS1 (0x48): A0-A1 (DI)  y  A2-A3 (DII)
-    - ADS2 (0x49): A0-A1 (V3)  y  A2-A3 (V5)
-    """
     nuevos_datos = QtCore.Signal(list)
     error_i2c = QtCore.Signal(str)
 
@@ -53,38 +143,17 @@ class HiloLecturaI2C(QtCore.QThread):
 
     def run(self):
         try:
-            # Conexión directa al bus I2C-1 de la Raspberry Pi
             bus = smbus2.SMBus(1)
             ADDR1 = 0x48
-            #ADDR2 = 0x49
 
-            # Mascaras de Configuración del Registro Config (0x01) para ADS1115:
-            # Bit 15: Start Single Conversion = 1
-            # Bits 14-12: MUX Differential
-            #   000 = A0-A1 (Diferencial)
-            #   011 = A2-A3 (Diferencial)
-            # Bits 11-9: PGA (Gain 1 = +/- 4.096V) -> 001
-            # Bit 8: Mode = 1 (Single-Shot para forzar cambio inmediato de MUX)
-            # Bits 7-5: Data Rate = 860 SPS -> 111
-            # Bits 4-0: Comparator config default -> 00011 (0x03)
-
-            # CONFIG_A0_A1 = 0x8000 | 0x0000 | 0x0200 | 0x0100 | 0x00E0 | 0x0003 = 0x83E3
-            # CONFIG_A2_A3 = 0x8000 | 0x3000 | 0x0200 | 0x0100 | 0x00E0 | 0x0003 = 0xB3E3
             CONF_DIFF_A0_A1 = 0x83E3
             CONF_DIFF_A2_A3 = 0xB3E3
 
             def leer_diferencial_raw(addr, config_val):
-                # 1. Escribir registro de configuración (0x01)
                 bus.write_i2c_block_data(addr, 0x01, [(config_val >> 8) & 0xFF, config_val & 0xFF])
-                
-                # Pequeña pausa para permitir la conversión a 860 SPS (~1.2 ms por muestra)
                 time.sleep(0.0014)
-
-                # 2. Leer resultado directamente del registro de conversión (0x00)
                 data = bus.read_i2c_block_data(addr, 0x00, 2)
                 raw = (data[0] << 8) | data[1]
-                
-                # Conversión de complemento a dos para lecturas con signo (diferenciales)
                 if raw > 32767:
                     raw -= 65536
                 return raw
@@ -99,13 +168,11 @@ class HiloLecturaI2C(QtCore.QThread):
 
         while self.ejecutando:
             try:
-                # --- ADS1115 #1 (0x48) ---
-                raw_DI  = leer_diferencial_raw(ADDR1, CONF_DIFF_A0_A1) # A0-A1
-                raw_DII = leer_diferencial_raw(ADDR1, CONF_DIFF_A2_A3) # A2-A3
+                raw_DI  = leer_diferencial_raw(ADDR1, CONF_DIFF_A0_A1)
+                raw_DII = leer_diferencial_raw(ADDR1, CONF_DIFF_A2_A3)
 
-                # --- ADS1115 #2 (0x49) ---
-                raw_V3  = raw_DI #leer_diferencial_raw(ADDR2, CONF_DIFF_A0_A1) # A0-A1
-                raw_V5  = raw_DII #leer_diferencial_raw(ADDR2, CONF_DIFF_A2_A3) # A2-A3
+                raw_V3  = raw_DI
+                raw_V5  = raw_DII
 
                 # Convertir a Voltios
                 v_DI  = raw_DI * volts_per_bits
@@ -113,22 +180,10 @@ class HiloLecturaI2C(QtCore.QThread):
                 v_V3  = raw_V3 * volts_per_bits
                 v_V5  = raw_V5 * volts_per_bits
 
-                # Reconstrucción matemática de las demás derivaciones
                 v_DIII = v_DII - v_DI
                 v_aVR  = -(v_DI + v_DII) / 2.0
                 v_aVL  = v_DI - (v_DII / 2.0)
                 v_aVF  = v_DII - (v_DI / 2.0)
-
-
-                gainx = 5
-                v_DI  = v_DI * gainx
-                v_DII = v_DII * gainx
-                v_V3  = v_V3 * gainx
-                v_V5  = v_V5 * gainx
-                v_DIII = v_DIII * gainx
-                v_aVR  = v_aVR * gainx
-                v_aVL  = v_aVL * gainx
-                v_aVF  = v_aVF * gainx
 
                 muestra_8ch = [
                     v_DI, v_DII, v_DIII,
@@ -146,8 +201,9 @@ class HiloLecturaI2C(QtCore.QThread):
         self.ejecutando = False
         self.wait()
 
+
 # ========================================================
-# 3. INTERFAZ CUESTIONARIO
+# 4. INTERFAZ CUESTIONARIO
 # ========================================================
 
 class VentanaDatosPaciente(QtWidgets.QDialog):
@@ -321,10 +377,13 @@ class VentanaDatosPaciente(QtWidgets.QDialog):
 
 
 # ========================================================
-# 4. MONITOR ECG DE 8 DERIVACIONES OPTIMIZADO
+# 5. MONITOR ECG DE 8 DERIVACIONES OPTIMIZADO
 # ========================================================
+
 class MonitorECG_8Derivaciones(QtWidgets.QWidget):
     NOMBRES_DERIVACIONES = ["DI", "DII", "DIII", "aVR", "aVL", "aVF", "V3", "V5"]
+    
+    # 1. TAMAÑO DE BUFFER AJUSTADO A 200 MUESTRAS
     TAMANO_BUFFER = 200
 
     def __init__(self, datos_paciente: DatosPaciente):
@@ -335,7 +394,6 @@ class MonitorECG_8Derivaciones(QtWidgets.QWidget):
         self.showFullScreen()
         self.setStyleSheet("background-color: #0d0d0d; color: white; font-family: Arial;")
 
-        # Arreglos Numpy fijos para rendimiento ultrarrápido
         self.buffers = {lead: np.zeros(self.TAMANO_BUFFER, dtype=np.float32) for lead in self.NOMBRES_DERIVACIONES}
         self.curves = {}
 
@@ -346,9 +404,9 @@ class MonitorECG_8Derivaciones(QtWidgets.QWidget):
         self.hilo_i2c.nuevos_datos.connect(self.recibir_muestra_i2c)
         self.hilo_i2c.error_i2c.connect(self.mostrar_error)
 
-        # Timer para renderizado desacoplado (30 FPS)
+        # Timer para renderizado (ajustado a 16 ms / ~60 FPS)
         self.timer_gui = QtCore.QTimer(self)
-        self.timer_gui.setInterval(33)  # ~30 Hz de refresco de pantalla
+        self.timer_gui.setInterval(16)
         self.timer_gui.timeout.connect(self.actualizar_graficas_gui)
 
     def inicializar_interfaz(self):
@@ -357,7 +415,6 @@ class MonitorECG_8Derivaciones(QtWidgets.QWidget):
         self.win_grafica = pg.GraphicsLayoutWidget()
         self.win_grafica.setBackground('#0d0d0d')
 
-        # Optimización global de renderizado en PyQTGraph
         pg.setConfigOptions(useOpenGL=True, antialias=False)
 
         for idx, lead_name in enumerate(self.NOMBRES_DERIVACIONES):
@@ -369,7 +426,6 @@ class MonitorECG_8Derivaciones(QtWidgets.QWidget):
             plot.enableAutoRange(axis='y', enable=False)
             plot.showGrid(x=True, y=True, alpha=0.2)
 
-            # Downsampling para evitar dibujar puntos redundantes
             plot.setDownsampling(auto=True, mode='peak')
             plot.setClipToView(True)
 
@@ -391,12 +447,45 @@ class MonitorECG_8Derivaciones(QtWidgets.QWidget):
 
         self.consola.append(f"[PACIENTE] {self.paciente.nombre} | {self.paciente.edad} años | Sexo: {self.paciente.sexo}")
         self.consola.append(f"[SÍNTOMAS] Dolor tórax: {self.paciente.cuestionario.get('dolor_torax')} | Intensidad: {self.paciente.cuestionario.get('dolor_intensidad')}/10")
+
+        # --- EVALUACIÓN Y MOSTRADO EN CONSOLA DEL RIESGO CLÍNICO ---
+        resultado_riesgo = calcular_riesgo_iam_cuestionario(self.paciente.cuestionario)
+        self.consola.append(f"[TRIAJE CLÍNICO] Riesgo IAM: {resultado_riesgo['nivel']} (Puntaje: {resultado_riesgo['puntos']})")
+        if resultado_riesgo['factores']:
+            self.consola.append(f"[FACTORES CLAVE] {', '.join(resultado_riesgo['factores'])}")
+        
         self.consola.append("[ESTADO] Listo para muestreo de alta velocidad...")
 
-        layout_inferior.addWidget(self.consola, stretch=3)
+        layout_inferior.addWidget(self.consola, stretch=2)
+
+        # --- PANEL VISUAL DE ANÁLISIS DE RIESGO E INFORMACIÓN CLÍNICA (NUEVO) ---
+        panel_riesgo = QtWidgets.QGroupBox("Evaluación Clínica de Riesgo Cardiovascular (Triaje Anamnésico)")
+        panel_riesgo.setStyleSheet("QGroupBox { color: #aaa; font-weight: bold; border: 1px solid #333; margin-top: 5px; }")
+        layout_riesgo = QtWidgets.QVBoxLayout(panel_riesgo)
+
+        lbl_resultado = QtWidgets.QLabel(f"PROBABILIDAD DE IAM: {resultado_riesgo['nivel']}")
+        lbl_resultado.setStyleSheet(
+            f"background-color: {resultado_riesgo['color']}; color: white; "
+            f"font-size: 16px; font-weight: bold; padding: 8px; border-radius: 4px;"
+        )
+        lbl_resultado.setAlignment(QtCore.Qt.AlignCenter)
+        layout_riesgo.addWidget(lbl_resultado)
+
+        lbl_advertencia = QtWidgets.QLabel(
+            "⚠️ <b>ADVERTENCIA TÉCNICA Y CLÍNICA:</b><br>"
+            "• La clasificación de riesgo se generó <b>ÚNICAMENTE</b> mediante el análisis de síntomas y antecedentes.<br>"
+            "• La señal de ECG opera a una frecuencia &lt; 50 SPS por canal (limitada por I2C/ADS1115), "
+            "la cual es muy inferior a la <b>Frecuencia de Nyquist</b> requerida para diagnóstico médico (mínimo 250 - 500 SPS).<br>"
+            "• El trazado es de carácter <b>ILUSTRATIVO Y DE MONITOREO BÁSICO</b>."
+        )
+        lbl_advertencia.setStyleSheet("color: #ffcc00; font-size: 10px; padding-top: 4px;")
+        lbl_advertencia.setWordWrap(True)
+        layout_riesgo.addWidget(lbl_advertencia)
+
+        layout_inferior.addWidget(panel_riesgo, stretch=2)
 
         layout_botones = QtWidgets.QVBoxLayout()
-        self.btn_iniciar = QtWidgets.QPushButton("⚡ Iniciar Muestreo (Alta Velocidad)")
+        self.btn_iniciar = QtWidgets.QPushButton("⚡ Iniciar Muestreo")
         self.btn_iniciar.setStyleSheet("background-color: #27ae60; font-size: 13px; font-weight: bold; padding: 12px; border-radius: 5px;")
         self.btn_iniciar.clicked.connect(self.iniciar_captura)
 
@@ -412,7 +501,7 @@ class MonitorECG_8Derivaciones(QtWidgets.QWidget):
         layout_principal.addLayout(layout_inferior, stretch=1)
 
     def iniciar_captura(self):
-        self.consola.append("[I2C] Iniciando captura optimizada a 860 SPS...")
+        self.consola.append("[I2C] Iniciando captura optimizada...")
         self.hilo_i2c.start()
         self.timer_gui.start()
         self.btn_iniciar.setEnabled(False)
@@ -426,13 +515,11 @@ class MonitorECG_8Derivaciones(QtWidgets.QWidget):
         self.btn_detener.setEnabled(False)
 
     def recibir_muestra_i2c(self, datos_8ch: list):
-        # Desplazamiento ultrarrápido en memoria Numpy sin listas
         for lead_name, val in zip(self.NOMBRES_DERIVACIONES, datos_8ch):
             self.buffers[lead_name] = np.roll(self.buffers[lead_name], -1)
             self.buffers[lead_name][-1] = val
 
     def actualizar_graficas_gui(self):
-        # Renderizado controlado únicamente a 30 FPS
         for lead_name in self.NOMBRES_DERIVACIONES:
             self.curves[lead_name].setData(self.buffers[lead_name])
 
@@ -446,7 +533,7 @@ class MonitorECG_8Derivaciones(QtWidgets.QWidget):
 
 
 # ========================================================
-# 5. EJECUCIÓN SECUENCIAL
+# 6. EJECUCIÓN SECUENCIAL
 # ========================================================
 
 if __name__ == "__main__":

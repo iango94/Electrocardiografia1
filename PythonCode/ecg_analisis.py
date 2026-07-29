@@ -22,14 +22,6 @@ class DatosPaciente:
 
 
 # ========================================================
-# 2. HILO DE LECTURA CON BENCHMARK DE SPS (A0-A1 y A2-A3)
-# ========================================================
-
-import smbus2
-import time
-from PySide6 import QtCore
-
-# ========================================================
 # HILO DE LECTURA OPTIMIZADO (RINDE ~300-350 SPS)
 # ========================================================
 
