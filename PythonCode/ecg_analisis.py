@@ -25,7 +25,7 @@ class DatosPaciente:
 # 2. HILO DE LECTURA CON BENCHMARK DE SPS (A0-A1 y A2-A3)
 # ========================================================
 
-cimport smbus2
+import smbus2
 import time
 from PySide6 import QtCore
 
