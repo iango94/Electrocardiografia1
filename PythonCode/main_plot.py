@@ -90,16 +90,16 @@ class MonitorECGCompleto(QtWidgets.QMainWindow):
         }
         
         # Construir Columna 1
-        self.configurar_canal(self.win_col1, 'dI', "Derivación Estándar dI", colores['bipolares'])
-        self.configurar_canal(self.win_col1, 'dII', "Derivación Estándar dII", colores['bipolares'])
-        self.configurar_canal(self.win_col1, 'dIII', "Derivación Calculada dIII (dII - dI)", colores['bipolares'])
-        self.configurar_canal(self.win_col1, 'aVR', "Derivación Calculada aVR", colores['aumentadas'])
+        self.configurar_canal(self.win_col1, 'dI', "Derivación dI", colores['bipolares'])
+        self.configurar_canal(self.win_col1, 'dII', "Derivación dII", colores['bipolares'])
+        self.configurar_canal(self.win_col1, 'dIII', "Derivación dIII (dII - dI)", colores['bipolares'])
+        self.configurar_canal(self.win_col1, 'aVR', "Derivación aVR", colores['aumentadas'])
         
         # Construir Columna 2
-        self.configurar_canal(self.win_col2, 'aVL', "Derivación Calculada aVL", colores['aumentadas'])
-        self.configurar_canal(self.win_col2, 'aVF', "Derivación Calculada aVF", colores['aumentadas'])
-        self.configurar_canal(self.win_col2, 'V1', "Derivación Precordial V1", colores['precordiales'])
-        self.configurar_canal(self.win_col2, 'V5', "Derivación Precordial V5", colores['precordiales'])
+        self.configurar_canal(self.win_col2, 'aVL', "Derivación aVL", colores['aumentadas'])
+        self.configurar_canal(self.win_col2, 'aVF', "Derivación aVF", colores['aumentadas'])
+        self.configurar_canal(self.win_col2, 'V1', "Derivación V1", colores['precordiales'])
+        self.configurar_canal(self.win_col2, 'V5', "Derivación V5", colores['precordiales'])
         
         # Temporizador de actualización
         self.timer = QtCore.QTimer()

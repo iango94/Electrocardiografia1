@@ -41,7 +41,7 @@ class LectorECG:
         # v_di = self.chan_di.value * self.VOLTS_PER_BIT
         # v_dii = self.chan_dii.value * self.VOLTS_PER_BIT
         
-        # v_v1 = self.chan_v1.voltage
-        # v_v5 = self.chan_v5.voltage
+        v_v1 = self.chan_v1.voltage
+        v_v5 = self.chan_v5.voltage
         
         return v_di, v_dii, v_v1, v_v5
