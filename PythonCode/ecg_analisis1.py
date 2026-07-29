@@ -1,8 +1,8 @@
 import sys
 import time
-import numpy as np
 from dataclasses import dataclass, field
 from typing import Dict, Any
+from collections import deque
 
 from PySide6 import QtWidgets, QtCore, QtGui
 import pyqtgraph as pg
@@ -11,14 +11,16 @@ import pyqtgraph as pg
 import board
 import busio
 import adafruit_ads1x15.ads1115 as ADS
+from adafruit_ads1x15.ads1x15 import Pin
 from adafruit_ads1x15.analog_in import AnalogIn
 
 # ========================================================
-# 1. ESTRUCTURA DE DATOS DEL PACIENTE
+# 1. ESTRUCTURA DE DATOS DEL PACIENTE (Anamnesis)
 # ========================================================
 
 @dataclass
 class DatosPaciente:
+    """Almacena la información demográfica y clínica capturada en el cuestionario"""
     nombre: str = "Paciente_Raspberry"
     edad: int = 25
     sexo: str = "M"
@@ -32,11 +34,11 @@ class DatosPaciente:
 
 
 # ========================================================
-# 2. HILO DE LECTURA DE ALTA VELOCIDAD
+# 2. HILO DE LECTURA DE DOS ADS1115 (I2C)
 # ========================================================
 
 class HiloLecturaI2C(QtCore.QThread):
-    """Lectura optimizada de 2x ADS1115 a ~100-200 Hz verdaderos"""
+    """Muestra 2x ADS1115 por I2C y calcula las 8 derivaciones"""
     nuevos_datos = QtCore.Signal(list)
     error_i2c = QtCore.Signal(str)
 
@@ -46,47 +48,43 @@ class HiloLecturaI2C(QtCore.QThread):
 
     def run(self):
         try:
-            # Bus I2C a alta velocidad (400 kHz en el SoC de la Raspberry Pi)
+            # Bus I2C compartido
             i2c = busio.I2C(board.SCL, board.SDA)
 
-            # ADS1115 #1 (0x48)
+            # ADS1115 #1 (Dirección por defecto 0x48 - ADDR a GND) -> Bipolares (DI, DII)
             ads1 = ADS.ADS1115(i2c, address=0x48)
-            ads1.gain = 1  # +/- 4.096V
-            ads1.data_rate = 860  # <<-- CRÍTICO: Configurar tasa de muestreo a 860 SPS
-            chan_DI = AnalogIn(ads1, ADS.P0)
-            chan_DII = AnalogIn(ads1, ADS.P1)
+            ads1.gain = 1  # Gain +/- 4.096V
+            chan_DI = AnalogIn(ads1, Pin.A0, Pin.A1)
+            chan_DII = AnalogIn(ads1, Pin.A2, Pin.A3)
 
-            # ADS1115 #2 (0x49)
-            ads2 = ADS.ADS1115(i2c, address=0x49)
-            ads2.gain = 1
-            ads2.data_rate = 860  # <<-- CRÍTICO: Configurar tasa de muestreo a 860 SPS
-            chan_V3 = AnalogIn(ads2, ADS.P0)
-            chan_V5 = AnalogIn(ads2, ADS.P1)
+            # ADS1115 #2 (Dirección 0x49 - ADDR a VDD) -> Precordiales (V3, V5)
+            #ads2 = ADS.ADS1115(i2c, address=0x49)
+            #ads2.gain = 1
+            chan_V3 = chan_DI #AnalogIn(ads2, Pin.A0, Pin.A1)
+            chan_V5 = chan_DII #AnalogIn(ads2, Pin.A2, Pin.A3)
 
             self.ejecutando = True
 
         except Exception as e:
-            self.error_i2c.emit(f"Error inicializando ADS1115s: {e}")
+            self.error_i2c.emit(f"Error inicializando ADS1115s (verificar direcciones 0x48 y 0x49): {e}")
             return
-
-        # Factor de conversión directo para evitar sobrecarga en bucle
-        # ADS1115 (16-bit): LSB = 4.096V / 32767
-        volts_per_bits = 4.096 / 32767.0
 
         while self.ejecutando:
             try:
-                # Lectura ultra rápida accediendo al valor RAW entero del convertidor
-                v_DI = chan_DI.value * volts_per_bits
-                v_DII = chan_DII.value * volts_per_bits
-                v_V3 = chan_V3.value * volts_per_bits
-                v_V5 = chan_V5.value * volts_per_bits
+                # 1. Lecturas directas de hardware
+                v_DI = chan_DI.voltage
+                v_DII = chan_DII.voltage
+                v_V3 = chan_V3.voltage
+                v_V5 = chan_V5.voltage
 
-                # Reconstrucción matemática
+                # 2. Reconstrucción matemática por Triángulo de Einthoven y Leyes de Goldberger
                 v_DIII = v_DII - v_DI
                 v_aVR  = -(v_DI + v_DII) / 2.0
                 v_aVL  = v_DI - (v_DII / 2.0)
                 v_aVF  = v_DII - (v_DI / 2.0)
 
+                # Arreglo ordenado con las 8 derivaciones
+                # [DI, DII, DIII, aVR, aVL, aVF, V3, V5]
                 muestra_8ch = [
                     v_DI, v_DII, v_DIII,
                     v_aVR, v_aVL, v_aVF,
@@ -95,12 +93,12 @@ class HiloLecturaI2C(QtCore.QThread):
 
                 self.nuevos_datos.emit(muestra_8ch)
 
-                # Pausa mínima de ~2ms para liberar la CPU
-                time.sleep(0.002)
+                # Frecuencia de muestreo (~100 Hz / 10ms)
+                time.sleep(0.01)
 
             except Exception as e:
-                self.error_i2c.emit(f"Fallo I2C: {e}")
-                time.sleep(0.05)
+                self.error_i2c.emit(f"Fallo de lectura en bus I2C: {e}")
+                time.sleep(0.1)
 
     def detener(self):
         self.ejecutando = False
@@ -108,10 +106,11 @@ class HiloLecturaI2C(QtCore.QThread):
 
 
 # ========================================================
-# 3. INTERFAZ CUESTIONARIO
+# 3. INTERFAZ GRÁFICA DEL CUESTIONARIO (Modal)
 # ========================================================
 
 class VentanaDatosPaciente(QtWidgets.QDialog):
+    """Cuestionario clínico inicial a pantalla completa"""
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Configuración de Paciente - Proyecto Latido")
@@ -123,6 +122,7 @@ class VentanaDatosPaciente(QtWidgets.QDialog):
         layout = QtWidgets.QVBoxLayout(self)
         layout.addWidget(QtWidgets.QLabel("<h2>PROYECTO LATIDO - CONFIGURACIÓN DE PACIENTE</h2>"))
 
+        # Datos básicos
         layout.addWidget(QtWidgets.QLabel("Nombre Completo:"))
         self.txt_nombre = QtWidgets.QLineEdit("Paciente_Raspberry")
         self.txt_nombre.setStyleSheet("background-color: #2b2b2b; color: white; border: 1px solid #555; padding: 6px;")
@@ -139,6 +139,7 @@ class VentanaDatosPaciente(QtWidgets.QDialog):
         self.cb_sexo.setStyleSheet("background-color: #2b2b2b; color: white; padding: 6px;")
         layout.addWidget(self.cb_sexo)
 
+        # Scroll para secciones
         scroll = QtWidgets.QScrollArea()
         scroll.setWidgetResizable(True)
         contenido = QtWidgets.QWidget()
@@ -146,6 +147,7 @@ class VentanaDatosPaciente(QtWidgets.QDialog):
         scroll.setWidget(contenido)
         layout.addWidget(scroll)
 
+        # Secciones clínicas
         grupo_sintomas = QtWidgets.QGroupBox("1. Síntomas actuales")
         form_sintomas = QtWidgets.QFormLayout()
         self.cb_dolor_torax = self.agregar_fila(form_sintomas, "¿Presenta dolor o incomodidad en el pecho?")
@@ -215,6 +217,7 @@ class VentanaDatosPaciente(QtWidgets.QDialog):
         grupo_contra.setLayout(form_contra)
         form_principal.addWidget(grupo_contra)
 
+        # Botón de inicio
         self.btn_listo = QtWidgets.QPushButton("INICIAR MONITOREO DE 8 DERIVACIONES (2x ADS1115)")
         self.btn_listo.setStyleSheet("background-color: #27ae60; color: white; font-size: 14px; font-weight: bold; padding: 12px; border-radius: 5px;")
         self.btn_listo.clicked.connect(self.guardar_y_entrar)
@@ -282,10 +285,12 @@ class VentanaDatosPaciente(QtWidgets.QDialog):
 
 
 # ========================================================
-# 4. MONITOR ECG DE 8 DERIVACIONES OPTIMIZADO
+# 4. MONITOR ECG DE 8 DERIVACIONES
 # ========================================================
 
 class MonitorECG_8Derivaciones(QtWidgets.QWidget):
+    """Monitor para 8 derivaciones (DI, DII, DIII, aVR, aVL, aVF, V3, V5)"""
+
     NOMBRES_DERIVACIONES = ["DI", "DII", "DIII", "aVR", "aVL", "aVF", "V3", "V5"]
     TAMANO_BUFFER = 1000
 
@@ -297,8 +302,7 @@ class MonitorECG_8Derivaciones(QtWidgets.QWidget):
         self.showFullScreen()
         self.setStyleSheet("background-color: #0d0d0d; color: white; font-family: Arial;")
 
-        # Arreglos Numpy fijos para rendimiento ultrarrápido
-        self.buffers = {lead: np.zeros(self.TAMANO_BUFFER, dtype=np.float32) for lead in self.NOMBRES_DERIVACIONES}
+        self.buffers = {lead: deque([0.0]*self.TAMANO_BUFFER, maxlen=self.TAMANO_BUFFER) for lead in self.NOMBRES_DERIVACIONES}
         self.curves = {}
 
         self.inicializar_interfaz()
@@ -308,43 +312,34 @@ class MonitorECG_8Derivaciones(QtWidgets.QWidget):
         self.hilo_i2c.nuevos_datos.connect(self.recibir_muestra_i2c)
         self.hilo_i2c.error_i2c.connect(self.mostrar_error)
 
-        # Timer para renderizado desacoplado (30 FPS)
-        self.timer_gui = QtCore.QTimer(self)
-        self.timer_gui.setInterval(33)  # ~30 Hz de refresco de pantalla
-        self.timer_gui.timeout.connect(self.actualizar_graficas_gui)
-
     def inicializar_interfaz(self):
         layout_principal = QtWidgets.QVBoxLayout(self)
 
+        # Gráficas en matriz 2x4
         self.win_grafica = pg.GraphicsLayoutWidget()
         self.win_grafica.setBackground('#0d0d0d')
-
-        # Optimización global de renderizado en PyQTGraph
-        pg.setConfigOptions(useOpenGL=True, antialias=False)
 
         for idx, lead_name in enumerate(self.NOMBRES_DERIVACIONES):
             row = idx // 2
             col = idx % 2
 
             plot = self.win_grafica.addPlot(row=row, col=col, title=f"Derivación {lead_name}")
-            plot.setYRange(-1.5, 3.5)
+            plot.setYRange(-2.0, 3.3)
             plot.enableAutoRange(axis='y', enable=False)
             plot.showGrid(x=True, y=True, alpha=0.2)
-
-            # Downsampling para evitar dibujar puntos redundantes
-            plot.setDownsampling(auto=True, mode='peak')
-            plot.setClipToView(True)
 
             curve = plot.plot(pen=pg.mkPen(color='#39ff14', width=1.5))
             self.curves[lead_name] = curve
 
         layout_principal.addWidget(self.win_grafica, stretch=4)
 
+        # Divisor
         linea = QtWidgets.QFrame()
         linea.setFrameShape(QtWidgets.QFrame.HLine)
         linea.setStyleSheet("color: #333;")
         layout_principal.addWidget(linea)
 
+        # Panel Inferior
         layout_inferior = QtWidgets.QHBoxLayout()
 
         self.consola = QtWidgets.QTextEdit()
@@ -352,13 +347,15 @@ class MonitorECG_8Derivaciones(QtWidgets.QWidget):
         self.consola.setStyleSheet("background-color: #141414; color: #00ffcc; border: 1px solid #222; font-size: 11px;")
 
         self.consola.append(f"[PACIENTE] {self.paciente.nombre} | {self.paciente.edad} años | Sexo: {self.paciente.sexo}")
-        self.consola.append(f"[SÍNTOMAS] Dolor tórax: {self.paciente.cuestionario.get('dolor_torax')} | Intensidad: {self.paciente.cuestionario.get('dolor_intensidad')}/10")
-        self.consola.append("[ESTADO] Listo para muestreo de alta velocidad...")
+        self.consola.append(f"[SÍNTOMAS] Dolor tórax: {self.paciente.cuestionario.get('dolor_torax')} | Intensidad: {self.paciente.cuestionario.get('dolor_intensidad')}/10 | Tipo: {self.paciente.cuestionario.get('dolor_tipo')}")
+        self.consola.append(f"[FACTORES RIESGO] HTA: {self.paciente.cuestionario.get('hipertension')} | Diabetes: {self.paciente.cuestionario.get('diabetes')} | Tabaquismo: {self.paciente.cuestionario.get('tabaquismo')}")
+        self.consola.append("[ESTADO] Listo para muestrear 2x ADS1115 (0x48 / 0x49)...")
 
         layout_inferior.addWidget(self.consola, stretch=3)
 
+        # Botones de control
         layout_botones = QtWidgets.QVBoxLayout()
-        self.btn_iniciar = QtWidgets.QPushButton("⚡ Iniciar Muestreo (Alta Velocidad)")
+        self.btn_iniciar = QtWidgets.QPushButton("⚡ Iniciar Muestreo (2x ADS1115)")
         self.btn_iniciar.setStyleSheet("background-color: #27ae60; font-size: 13px; font-weight: bold; padding: 12px; border-radius: 5px;")
         self.btn_iniciar.clicked.connect(self.iniciar_captura)
 
@@ -374,35 +371,26 @@ class MonitorECG_8Derivaciones(QtWidgets.QWidget):
         layout_principal.addLayout(layout_inferior, stretch=1)
 
     def iniciar_captura(self):
-        self.consola.append("[I2C] Iniciando captura optimizada a 860 SPS...")
+        self.consola.append("[I2C] Iniciando captura desde ADS1115 (0x48) y ADS1115 (0x49)...")
         self.hilo_i2c.start()
-        self.timer_gui.start()
         self.btn_iniciar.setEnabled(False)
         self.btn_detener.setEnabled(True)
 
     def detener_captura(self):
         self.hilo_i2c.detener()
-        self.timer_gui.stop()
         self.consola.append("[I2C] Captura detenida.")
         self.btn_iniciar.setEnabled(True)
         self.btn_detener.setEnabled(False)
 
     def recibir_muestra_i2c(self, datos_8ch: list):
-        # Desplazamiento ultrarrápido en memoria Numpy sin listas
         for lead_name, val in zip(self.NOMBRES_DERIVACIONES, datos_8ch):
-            self.buffers[lead_name] = np.roll(self.buffers[lead_name], -1)
-            self.buffers[lead_name][-1] = val
-
-    def actualizar_graficas_gui(self):
-        # Renderizado controlado únicamente a 30 FPS
-        for lead_name in self.NOMBRES_DERIVACIONES:
-            self.curves[lead_name].setData(self.buffers[lead_name])
+            self.buffers[lead_name].append(val)
+            self.curves[lead_name].setData(list(self.buffers[lead_name]))
 
     def mostrar_error(self, msj: str):
         self.consola.append(f"[ERROR I2C] {msj}")
 
     def closeEvent(self, event):
-        self.timer_gui.stop()
         self.hilo_i2c.detener()
         event.accept()
 
