@@ -15,9 +15,6 @@ import adafruit_ads1x15.ads1115 as ADS
 from adafruit_ads1x15.ads1x15 import Pin
 from adafruit_ads1x15.analog_in import AnalogIn
 
-# ========================================================
-# 1. ESTRUCTURA DE DATOS DEL PACIENTE
-# ========================================================
 
 @dataclass
 class DatosPaciente:
@@ -33,9 +30,6 @@ class DatosPaciente:
             self.file_name = f"ECG_{nombre_limpio}.pdf"
 
 
-# ========================================================
-# 2. FUNCIÓN DE ANÁLISIS DE RIESGO CLÍNICO (NUEVO)
-# ========================================================
 
 def calcular_riesgo_iam_cuestionario(cuestionario: dict) -> dict:
     """
@@ -129,10 +123,6 @@ def calcular_riesgo_iam_cuestionario(cuestionario: dict) -> dict:
     }
 
 
-# ========================================================
-# 3. HILO DE LECTURA DIFERENCIAL ULTRA RÁPIDO
-# ========================================================
-
 class HiloLecturaI2C(QtCore.QThread):
     nuevos_datos = QtCore.Signal(list)
     error_i2c = QtCore.Signal(str)
@@ -185,6 +175,16 @@ class HiloLecturaI2C(QtCore.QThread):
                 v_aVL  = v_DI - (v_DII / 2.0)
                 v_aVF  = v_DII - (v_DI / 2.0)
 
+                gainx = 5
+                v_DI  = v_DI * gainx
+                v_DII = v_DII * gainx
+                v_V3  = v_V3 * gainx
+                v_V5  = v_V5 * gainx
+                v_DIII = v_DIII * gainx
+                v_aVR  = v_aVR * gainx
+                v_aVL  = v_aVL * gainx
+                v_aVF  = v_aVF * gainx
+
                 muestra_8ch = [
                     v_DI, v_DII, v_DIII,
                     v_aVR, v_aVL, v_aVF,
@@ -202,9 +202,6 @@ class HiloLecturaI2C(QtCore.QThread):
         self.wait()
 
 
-# ========================================================
-# 4. INTERFAZ CUESTIONARIO
-# ========================================================
 
 class VentanaDatosPaciente(QtWidgets.QDialog):
     def __init__(self):
@@ -376,15 +373,12 @@ class VentanaDatosPaciente(QtWidgets.QDialog):
         self.accept()
 
 
-# ========================================================
-# 5. MONITOR ECG DE 8 DERIVACIONES OPTIMIZADO
-# ========================================================
 
 class MonitorECG_8Derivaciones(QtWidgets.QWidget):
     NOMBRES_DERIVACIONES = ["DI", "DII", "DIII", "aVR", "aVL", "aVF", "V3", "V5"]
     
     # 1. TAMAÑO DE BUFFER AJUSTADO A 200 MUESTRAS
-    TAMANO_BUFFER = 200
+    TAMANO_BUFFER = 240
 
     def __init__(self, datos_paciente: DatosPaciente):
         super().__init__()
@@ -474,9 +468,8 @@ class MonitorECG_8Derivaciones(QtWidgets.QWidget):
         lbl_advertencia = QtWidgets.QLabel(
             "⚠️ <b>ADVERTENCIA TÉCNICA Y CLÍNICA:</b><br>"
             "• La clasificación de riesgo se generó <b>ÚNICAMENTE</b> mediante el análisis de síntomas y antecedentes.<br>"
-            "• La señal de ECG opera a una frecuencia &lt; 50 SPS por canal (limitada por I2C/ADS1115), "
+            "• La señal de ECG opera a una frecuencia &lt; inferior a 50 SPS por canal (limitada por I2C/ADS1115), "
             "la cual es muy inferior a la <b>Frecuencia de Nyquist</b> requerida para diagnóstico médico (mínimo 250 - 500 SPS).<br>"
-            "• El trazado es de carácter <b>ILUSTRATIVO Y DE MONITOREO BÁSICO</b>."
         )
         lbl_advertencia.setStyleSheet("color: #ffcc00; font-size: 10px; padding-top: 4px;")
         lbl_advertencia.setWordWrap(True)
