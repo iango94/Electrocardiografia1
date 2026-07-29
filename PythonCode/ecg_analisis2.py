@@ -119,6 +119,17 @@ class HiloLecturaI2C(QtCore.QThread):
                 v_aVL  = v_DI - (v_DII / 2.0)
                 v_aVF  = v_DII - (v_DI / 2.0)
 
+
+                gainx = 5
+                v_DI  = v_DI * gainx
+                v_DII = v_DII * gainx
+                v_V3  = v_V3 * gainx
+                v_V5  = v_V5 * gainx
+                v_DIII = v_DIII * gainx
+                v_aVR  = v_aVR * gainx
+                v_aVL  = v_aVL * gainx
+                v_aVF  = v_aVF * gainx
+
                 muestra_8ch = [
                     v_DI, v_DII, v_DIII,
                     v_aVR, v_aVL, v_aVF,
@@ -315,7 +326,7 @@ class VentanaDatosPaciente(QtWidgets.QDialog):
 
 class MonitorECG_8Derivaciones(QtWidgets.QWidget):
     NOMBRES_DERIVACIONES = ["DI", "DII", "DIII", "aVR", "aVL", "aVF", "V3", "V5"]
-    TAMANO_BUFFER = 1000
+    TAMANO_BUFFER = 200
 
     def __init__(self, datos_paciente: DatosPaciente):
         super().__init__()
