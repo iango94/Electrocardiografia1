@@ -414,13 +414,13 @@ class MonitorECG_8Derivaciones(QtWidgets.QWidget):
 
         for idx, lead_name in enumerate(self.NOMBRES_DERIVACIONES):
             row = idx // 2
-            col = idx % 2
+            col = (idx % 2)*2
 
-            plot = self.win_grafica.addPlot(row=row, col=col)
-            plot.setYRange(-2.5, 3.5)
+            plot = self.win_grafica.addPlot(row=row, col=col+1)
+            plot.setYRange(-1, 3.5)
 
             label = pg.LabelItem(f"{lead_name}", angle=-90)
-            self.win_grafica.addItem(label, row=row, col=col+1)
+            self.win_grafica.addItem(label, row=row, col=col)
 
             plot.enableAutoRange(axis='y', enable=False)
             plot.showGrid(x=True, y=True, alpha=0.2)
