@@ -15,6 +15,7 @@ import adafruit_ads1x15.ads1115 as ADS
 from adafruit_ads1x15.ads1x15 import Pin
 from adafruit_ads1x15.analog_in import AnalogIn
 
+gainx = 5
 
 @dataclass
 class DatosPaciente:
@@ -175,7 +176,7 @@ class HiloLecturaI2C(QtCore.QThread):
                 v_aVL  = v_DI - (v_DII / 2.0)
                 v_aVF  = v_DII - (v_DI / 2.0)
 
-                gainx = 5
+                global gainx
                 v_DI  = v_DI * gainx
                 v_DII = v_DII * gainx
                 v_V3  = v_V3 * gainx
@@ -415,8 +416,12 @@ class MonitorECG_8Derivaciones(QtWidgets.QWidget):
             row = idx // 2
             col = idx % 2
 
-            plot = self.win_grafica.addPlot(row=row, col=col, title=f"Derivación {lead_name}")
-            plot.setYRange(-1.5, 3.5)
+            plot = self.win_grafica.addPlot(row=row, col=col)
+            plot.setYRange(-2.5, 3.5)
+
+            label = pg.LabelItem(f"{lead_name}", angle=-90)
+            self.win_grafica.addItem(label, row=row, col=col+1)
+
             plot.enableAutoRange(axis='y', enable=False)
             plot.showGrid(x=True, y=True, alpha=0.2)
 
